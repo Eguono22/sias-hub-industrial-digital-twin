@@ -1,2 +1,12 @@
 # Google App Engine generated folder
 appengine-generated/
+node_modules/
+.next/
+.env
+.env.local
+.env.*.local
+.venv/
+__pycache__/
+.pytest_cache/
+*.tsbuildinfo
+.DS_Store
