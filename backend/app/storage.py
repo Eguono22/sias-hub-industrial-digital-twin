@@ -1,10 +1,15 @@
 import json
+import time
 from collections import deque
 from datetime import datetime
 
 class Store:
-    def __init__(self, database_url=None):
+    def __init__(self, database_url=None, retention_mode='timescaledb'):
+        if retention_mode not in ('timescaledb', 'application'):
+            raise ValueError('TELEMETRY_RETENTION_MODE must be timescaledb or application')
         self.database_url = database_url
+        self.retention_mode = retention_mode
+        self.next_cleanup = 0
         self.pool = None
         self.samples = {key: deque(maxlen=1800) for key in ("EXT-001", "LAM-001")}
 
@@ -16,7 +21,10 @@ class Store:
             try:
                 async with self.pool.acquire() as conn:
                     if not await conn.fetchval("SELECT EXISTS (SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_schema='public' AND hypertable_name='telemetry')"):
-                        raise RuntimeError('Apply database/001_telemetry.sql before starting the API')
+                        migration = 'database/neon/001_telemetry.sql' if self.retention_mode == 'application' else 'database/001_telemetry.sql'
+                        raise RuntimeError(f'Apply {migration} before starting the API')
+                self.next_cleanup = 0
+                await self.cleanup()
             except Exception:
                 await self.pool.close()
                 self.pool = None
@@ -28,9 +36,16 @@ class Store:
 
     async def append(self, value):
         if self.pool:
+            await self.cleanup()
             await self.pool.execute('INSERT INTO telemetry (time, machine_id, payload) VALUES ($1, $2, $3::jsonb)',
                                     datetime.fromisoformat(value['timestamp']), value['machine_id'], json.dumps(value))
         self.samples[value['machine_id']].append(value)
+
+    async def cleanup(self):
+        if self.pool and self.retention_mode == 'application' and time.monotonic() >= self.next_cleanup:
+            # drop_chunks is available in the Apache edition; retention policies are not.
+            await self.pool.execute("SELECT drop_chunks('public.telemetry', older_than => INTERVAL '30 days')")
+            self.next_cleanup = time.monotonic() + 3600
 
     async def history(self, machine_id, limit, source=None):
         if self.pool:

@@ -14,7 +14,7 @@ from .module1 import Module1
 
 logger = logging.getLogger(__name__)
 origins = [x.strip() for x in os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',') if x.strip()]
-store = Store(os.getenv('DATABASE_URL'))
+store = Store(os.getenv('DATABASE_URL'), retention_mode=os.getenv('TELEMETRY_RETENTION_MODE', 'timescaledb'))
 subscribers = {m['id']: set() for m in MACHINES}
 latest = {}
 producer_error = None

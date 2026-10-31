@@ -102,3 +102,15 @@ Inspected the generated CSV Blob directly in the browser without downloading a f
 Added the `Validate` GitHub Actions workflow with frontend regression/build/TypeScript checks and a backend job that provisions a TimescaleDB service, applies the migration, and sets `TEST_DATABASE_URL` for persistence coverage. The backend job targets Python 3.12 and the frontend job targets Node.js 24. Added a [deployment handoff](../deployment.md) with environment settings, hosted checks, and rollback guidance. Removed the optional Module 1 URL from the Blueprint's initial configuration prompts; it remains supported as a manually configured environment variable.
 
 Local checks passed: workflow and Blueprint YAML syntax, five frontend tests, production build, TypeScript, and 18 backend tests. The local backend run used the existing Python 3.9 environment and skipped the opt-in database test; the successful 19-test database run is documented above. The GitHub-hosted workflow has not yet run. No hosted resources were created or deployed.
+
+## Neon provisioning and retention · October 30, 2026
+
+Created the dedicated `sias-digital-twin` Neon database through the existing Vercel Marketplace integration on its Free plan, in the `iad1` region. Connected it to a new dedicated Vercel project, `sias-hub-industrial-digital-twin`, with the `frontend` root. No frontend deployment was created. The existing unrelated `frontend` project was not modified.
+
+Added `database/neon/001_telemetry.sql` as an alternative initial migration, without the full-edition retention policy. With `TELEMETRY_RETENTION_MODE=application`, the API drops wholly expired 30-day chunks on startup and hourly during writes. Cleanup failures remain visible as startup/acquisition failures; native TimescaleDB retains its default database policy. Added regression coverage for cleanup throttling, retry after failure, invalid modes, old-chunk removal, recent-sample preservation, and source-separated persistence. CI now covers both license modes and repeated migration application.
+
+Local isolated database checks: native retention **22 passed, 1 intentionally skipped** (application-only cleanup test); Apache/application retention **23 passed**. Both alternative migrations ran twice successfully. The temporary container and data were removed.
+
+Hosted Neon checks: migration ran twice successfully; extension version `2.24.0`, license `apache`; **23 backend tests passed**, including real persistence and retention. Database credentials are stored only in ignored local environment files and Vercel's environment settings. `backend/.env.render.local` contains the prepared database URL, application retention setting, and local dashboard origins for Render import.
+
+Render environment updates remain pending because its installed plugin has not exposed usable tools in this session. The public API last reported memory storage; do not treat database provisioning as proof that Render is connected. The new CI matrix has not yet been verified on GitHub.

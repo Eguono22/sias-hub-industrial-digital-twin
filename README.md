@@ -54,6 +54,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/001_telemetry.sql
 
 The database provider must support the TimescaleDB extension and permit extension creation. Use a Timescale-enabled PostgreSQL service (for example Tiger Cloud) for production; a generic PostgreSQL service alone is not enough. Database startup/schema failures prevent API startup. Persistence failures make `/health` return 503.
 
+Neon through Vercel Marketplace is supported with `database/neon/001_telemetry.sql` and `TELEMETRY_RETENTION_MODE=application` on the API. This replaces the full-edition retention policy with chunk cleanup at startup and hourly during writes. See [provider-specific setup](docs/deployment.md); do not apply the full-edition migration to Neon.
+
 ## API and simulation
 
 - `GET /health`: acquisition readiness, storage mode, and source. Returns 503 until both machines have persisted samples, during acquisition/persistence failure, or after ten seconds without a successful acquisition for either machine.
