@@ -74,6 +74,8 @@ The browser window is also separated by machine and telemetry source. Switching 
 
 ## Deploy: Vercel + Render
 
+See the [deployment handoff](docs/deployment.md) for CI checks, environment settings, hosted smoke checks, and rollback steps.
+
 1. Provision a Timescale-enabled PostgreSQL database and apply `database/001_telemetry.sql`.
 2. Create a Render Blueprint from `render.yaml`. Set `DATABASE_URL` to that database's connection string (including SSL settings required by its provider) and `CORS_ORIGINS` to the exact frontend origins, comma-separated without trailing slashes.
 3. Import this repository into Vercel and set its **Root Directory** to `frontend`. Set `NEXT_PUBLIC_API_URL` to the Render HTTPS origin, then build/deploy. This public variable is embedded at build time; redeploy after changing it.

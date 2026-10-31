@@ -96,3 +96,9 @@ Used installed headless Chrome with isolated Next.js and FastAPI services and me
 | Captured JavaScript runtime exceptions | None |
 
 Inspected the generated CSV Blob directly in the browser without downloading a file. Temporary services and Chrome were stopped afterward. This run does not validate the real Module 1 service, persistent history across mode changes, or an empty-history source transition in the browser; empty-history replacement is covered by the frontend regression tests.
+
+## Deployment preparation · October 30, 2026
+
+Added the `Validate` GitHub Actions workflow with frontend regression/build/TypeScript checks and a backend job that provisions a TimescaleDB service, applies the migration, and sets `TEST_DATABASE_URL` for persistence coverage. The backend job targets Python 3.12 and the frontend job targets Node.js 24. Added a [deployment handoff](../deployment.md) with environment settings, hosted checks, and rollback guidance. Removed the optional Module 1 URL from the Blueprint's initial configuration prompts; it remains supported as a manually configured environment variable.
+
+Local checks passed: workflow and Blueprint YAML syntax, five frontend tests, production build, TypeScript, and 18 backend tests. The local backend run used the existing Python 3.9 environment and skipped the opt-in database test; the successful 19-test database run is documented above. The GitHub-hosted workflow has not yet run. No hosted resources were created or deployed.
