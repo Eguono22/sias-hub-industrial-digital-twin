@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { mergeTelemetry } from "./telemetry-window";
 export const channels = [
   { key: "temperature", label: "Barrel temperature", unit: "°C", tolerance: 5 },
   { key: "pressure", label: "Melt pressure", unit: "bar", tolerance: 5 },
@@ -34,6 +35,7 @@ function isSample(value: unknown, machine: string): value is Sample {
     typeof s.timestamp === "string" &&
     Number.isFinite(Date.parse(s.timestamp)) &&
     s.synthetic === true &&
+    (s.source === undefined || s.source === "builtin" || s.source === "module1") &&
     Array.isArray(s.anomalies) &&
     channels.every(
       (c) =>
@@ -65,15 +67,8 @@ export function useTelemetry(machine: string, paused: boolean) {
       setStatus("Paused");
       return;
     }
-    const merge = (incoming: Sample[]) =>
-      setSamples((previous) => {
-        const unique = new Map(
-          [...previous, ...incoming].map((s) => [s.timestamp, s]),
-        );
-        return [...unique.values()]
-          .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-          .slice(-60);
-      });
+    const merge = (incoming: Sample[], source: "builtin" | "module1") =>
+      setSamples((previous) => mergeTelemetry(previous, incoming, machine, source));
     const connect = async () => {
       setStatus("Connecting");
       try {
@@ -89,7 +84,11 @@ export function useTelemetry(machine: string, paused: boolean) {
         if (disposed) return;
         if (!Array.isArray(data) || !data.every((s) => isSample(s, machine)))
           throw Error("Invalid telemetry");
-        merge(data);
+        if (info.source !== "builtin" && info.source !== "module1")
+          throw Error("Invalid telemetry source");
+        if (!data.every((s: Sample) => (s.source ?? "builtin") === info.source))
+          throw Error("History source changed during connection");
+        merge(data, info.source);
         setStorage(info.storage);
         const url = new URL(`${base}/ws/machines/${machine}`);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -103,7 +102,8 @@ export function useTelemetry(machine: string, paused: boolean) {
         socket.onmessage = (e) => {
           try {
             const data: unknown = JSON.parse(e.data);
-            if (!disposed && isSample(data, machine)) merge([data]);
+            if (!disposed && isSample(data, machine))
+              merge([data], data.source ?? "builtin");
           } catch {
             setStatus("Invalid stream data");
           }

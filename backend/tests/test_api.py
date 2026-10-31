@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -66,4 +67,50 @@ def test_memory_history_is_bounded():
             await store.append(sample('EXT-001', i))
         assert len(await store.history('EXT-001', 1800)) == 1800
         assert len(await store.history('EXT-001', 3)) == 3
+    asyncio.run(check())
+
+@pytest.mark.parametrize('state', ['warming', 'partial', 'stale', 'failed'])
+def test_unready_api_preserves_history(monkeypatch, state):
+    async def check():
+        values = {m: sample(m, 0) for m in ('EXT-001', 'LAM-001')}
+        store = Store()
+        for value in values.values():
+            await store.append(value)
+        acquired = time.monotonic() - (11 if state == 'stale' else 0)
+        monkeypatch.setattr(main, 'store', store)
+        monkeypatch.setattr(main, 'source', None)
+        monkeypatch.setattr(main, 'latest', {} if state == 'warming' else values)
+        monkeypatch.setattr(main, 'last_acquired', {
+            m: acquired for m in values if state != 'partial' or m == 'EXT-001'
+        })
+        monkeypatch.setattr(main, 'producer_error', 'Acquisition failed' if state == 'failed' else None)
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as error:
+            await main.health()
+        assert error.value.status_code == 503
+        machine = 'LAM-001' if state == 'partial' else 'EXT-001'
+        with pytest.raises(HTTPException) as error:
+            await main.telemetry(machine)
+        assert error.value.status_code == 503
+        assert await main.history(machine, 60) == [values[machine]]
+    asyncio.run(check())
+
+def test_successful_acquisition_restores_readiness(monkeypatch):
+    async def check():
+        monkeypatch.setattr(main, 'store', Store())
+        monkeypatch.setattr(main, 'source', None)
+        monkeypatch.setattr(main, 'latest', {})
+        monkeypatch.setattr(main, 'last_acquired', {})
+        monkeypatch.setattr(main, 'producer_error', 'Previous failure')
+        producer = asyncio.create_task(main.produce())
+        try:
+            await asyncio.sleep(0)
+            assert (await main.health())['status'] == 'ok'
+            for machine in ('EXT-001', 'LAM-001'):
+                assert (await main.telemetry(machine))['machine_id'] == machine
+                assert main.last_acquired[machine] <= time.monotonic()
+        finally:
+            producer.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await producer
     asyncio.run(check())

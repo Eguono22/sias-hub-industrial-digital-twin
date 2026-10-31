@@ -19,6 +19,8 @@ subscribers = {m['id']: set() for m in MACHINES}
 latest = {}
 producer_error = None
 source = None
+last_acquired = {}
+STALE_AFTER_SECONDS = 10
 
 async def produce():
     global producer_error
@@ -32,6 +34,7 @@ async def produce():
                 value.setdefault('source', 'builtin')
                 await store.append(value)
                 latest[machine['id']] = value
+                last_acquired[machine['id']] = time.monotonic()
                 for queue in tuple(subscribers[machine['id']]):
                     if queue.full():
                         queue.get_nowait()
@@ -46,6 +49,7 @@ async def produce():
 async def lifespan(app):
     global source, producer_error
     latest.clear()
+    last_acquired.clear()
     producer_error = None
     url = os.getenv('SIAS_SIMULATOR_URL')
     source = Module1(url, os.getenv('SIAS_SIMULATOR_SCENARIO', 'normal'), os.getenv('SIAS_SIMULATOR_TARGET', 'extruder-01')) if url else None
@@ -68,10 +72,19 @@ def validate(machine_id):
     if machine_id not in subscribers:
         raise HTTPException(404, 'Unknown machine')
 
-@app.get('/health')
-async def health():
+def require_fresh(machine_id):
     if producer_error:
         raise HTTPException(503, producer_error)
+    acquired = last_acquired.get(machine_id)
+    if machine_id not in latest or acquired is None:
+        raise HTTPException(503, 'Simulation warming up')
+    if time.monotonic() - acquired > STALE_AFTER_SECONDS:
+        raise HTTPException(503, 'Telemetry acquisition is stale')
+
+@app.get('/health')
+async def health():
+    for machine in MACHINES:
+        require_fresh(machine['id'])
     return {'status': 'ok', 'storage': 'timescaledb' if store.pool else 'memory', 'synthetic': True, 'source': 'module1' if source else 'builtin'}
 
 @app.get('/api/machines')
@@ -81,8 +94,7 @@ async def machines():
 @app.get('/api/machines/{machine_id}/telemetry')
 async def telemetry(machine_id: str):
     validate(machine_id)
-    if machine_id not in latest:
-        raise HTTPException(503, 'Simulation warming up')
+    require_fresh(machine_id)
     return latest[machine_id]
 
 @app.get('/api/machines/{machine_id}/history')

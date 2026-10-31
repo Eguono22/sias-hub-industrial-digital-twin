@@ -56,17 +56,21 @@ The database provider must support the TimescaleDB extension and permit extensio
 
 ## API and simulation
 
-- `GET /health`: service status and storage mode.
+- `GET /health`: acquisition readiness, storage mode, and source. Returns 503 until both machines have persisted samples, during acquisition/persistence failure, or after ten seconds without a successful acquisition for either machine.
 - `GET /api/machines`: machine and channel metadata.
 - `GET /api/machines/{id}/telemetry`: latest sample.
 - `GET /api/machines/{id}/history?limit=60`: oldest-to-newest history, maximum 1,800.
 - `WS /ws/machines/{id}`: latest sample then updates every two seconds.
+
+The latest-sample REST endpoint also returns 503 during acquisition/persistence failure or when its machine has no fresh acquisition. History remains readable during these outages. Freshness uses the API's monotonic acquisition clock, independent of upstream simulation timestamps; the dashboard separately checks sample timestamps. A successful collection cycle restores readiness automatically.
 
 Machine IDs are `EXT-001` and `LAM-001`. Samples contain UTC timestamps, expected/observed values, percentage deviations, anomaly channels, and `synthetic: true`. A single producer runs independent of viewers, persists both machines, and fans out samples to subscribers. Slow viewers receive the newest sample instead of accumulating an unbounded queue.
 
 The frontend retrieves REST history, connects to WebSockets, deduplicates timestamps, limits its rolling window to 60 samples, and reconnects with exponential backoff. Pause stops the current viewer's subscription; the shared backend simulation continues. Resume retrieves history and reconnects. CSV exports the displayed window. Select components in 3D or with the accessible dropdown; drag to orbit and scroll to zoom.
 
 The simulation is implemented in `backend/app/simulation.py`, with storage and transport separate. Set `SIAS_SIMULATOR_URL` to enable the Module 1 REST adapter described below. The reference model uses nominal operating targets without consuming observations; neither the synthetic plant nor the reference is a validated physical model. Equipment geometry is procedural 3D, not manufacturer CAD. Condition bars show actual deviations relative to channel tolerances; they do not predict failures or remaining useful life.
+
+The browser window is also separated by machine and telemetry source. Switching sources replaces previous readings even when the new history is empty. Timestamp ordering and deduplication compare instants, including equivalent timestamps with different UTC offsets.
 
 ## Deploy: Vercel + Render
 
@@ -82,6 +86,7 @@ The browser connects directly to Render via REST and WSS; there is no Vercel Web
 ```sh
 cd frontend
 npm run typecheck
+npm test
 npm run build
 ```
 
