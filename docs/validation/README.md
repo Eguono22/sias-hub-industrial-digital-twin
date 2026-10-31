@@ -57,3 +57,42 @@ Desktop viewport was 1440 × 1100. Temporary services were stopped after validat
 The displayed telemetry window now filters by machine and source on every merge. Source changes discard the previous source even when the new REST history is empty; history and health source mismatches trigger a connection retry. Same-source reconnections retain the rolling window. Timestamp comparison uses parsed instants to order UTC offsets correctly and deduplicate equivalent timestamps.
 
 Five frontend regression tests passed with `npm test`: switching in both directions with older incoming timestamps, empty new-source history, equivalent timestamps and ordering, machine/source isolation, and the 60-sample window with legacy built-in samples. `npm run typecheck` and the production `npm run build` passed. Browser validation was not repeated for this change.
+
+## Acquisition outage recovery · October 30, 2026
+
+Ran installed headless Chrome against isolated Next.js and FastAPI services with memory storage and a controlled mock of the Module 1 REST interface. The mock supplied current UTC timestamps, nominal machine baselines, and four sensor channels. After the dashboard reached LIVE, the mock returned HTTP 503 for upstream requests while the API and WebSocket connection remained running.
+
+| Check | Result |
+| --- | --- |
+| Initial Module 1 source label and LIVE status | Passed |
+| Health and latest telemetry during acquisition failure | Both returned 503 |
+| History access during outage | Returned 200; samples remained unchanged |
+| Displayed sensor readings during outage | Retained without fabricated updates |
+| Dashboard after sample freshness expired | Stream stale and OFFLINE |
+| Restored acquisition without browser reload | Health returned 200; latest timestamp advanced; dashboard returned to LIVE |
+| Captured JavaScript runtime exceptions | None |
+
+Temporary services and Chrome were stopped after validation. This checks acquisition failure and recovery through the real adapter, producer, REST API, WebSocket, and dashboard. It does not validate the real Module 1 service, a dropped WebSocket connection, database failure or persistence, or source switching.
+
+## TimescaleDB integration · October 30, 2026
+
+Started Docker Desktop and created an isolated temporary container from the locally cached `timescale/timescaledb:latest-pg17` image, with an ephemeral database and a randomly assigned loopback port. Applied `database/001_telemetry.sql` successfully, creating the TimescaleDB extension, telemetry hypertable, and 30-day retention policy.
+
+Ran the full backend suite with `TEST_DATABASE_URL` pointing to this temporary database: **19 tests passed, none skipped**. The integration test verified that a persisted Module 1 sample survived closing and reopening the storage connection, remained excluded from built-in source history, and appeared in chronological history. It also verified hypertable registration and retention-job presence.
+
+Removed the temporary container and its data after validation; existing telemetry databases were not modified. Docker Desktop remains running. This verifies persistence across storage reconnects, not a database-server restart, retention-policy execution, or database-outage recovery.
+
+## Browser source switching · October 30, 2026
+
+Used installed headless Chrome with isolated Next.js and FastAPI services and memory storage. Module 1 readings came from a controlled mock REST interface. Kept the same browser page open while restarting the API in the sequence Module 1 → built-in → Module 1. A page token confirmed that no page reload occurred; each restart was observed to leave LIVE before reconnecting in the new mode.
+
+| Check | Result |
+| --- | --- |
+| Automatic reconnection and correct source label in both directions | Passed |
+| CSV source isolation | Every exported row belonged to the active source and EXT-001 |
+| Chart window replacement | Three initial Module 1 samples became one built-in sample, then one Module 1 sample; chart and export counts matched |
+| CSV throughput availability | Numeric built-in throughput; empty expected/observed values for Module 1 |
+| Module 1 throughput comparison chart | Displayed “Channel not provided by source” |
+| Captured JavaScript runtime exceptions | None |
+
+Inspected the generated CSV Blob directly in the browser without downloading a file. Temporary services and Chrome were stopped afterward. This run does not validate the real Module 1 service, persistent history across mode changes, or an empty-history source transition in the browser; empty-history replacement is covered by the frontend regression tests.
